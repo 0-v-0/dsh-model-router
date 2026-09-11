@@ -191,3 +191,39 @@ corrupt Zstandard session log: first frame is not exactly one header line
 3. 用户的 Desktop/Web 端可能正开着，`dsh web` 是前台进程——排障时提醒用户避免并发操作 sessions 目录。
 4. 所有既成结论都以本文档 + 源码行为准；不要凭记忆重新推导格式契约。
 5. 若上游接受了 L2，回来更新本档第四节状态，避免下一个 Agent 重复提案。
+
+---
+
+## 七、补记（2026-08-27 晚）：v2 修复与 0.0.8 部署之间窗口期产生的新尾部
+
+> 本文档"一切健康"的结论在 v2 修复完成后暂时成立，但当晚又复现了同款
+> `SessionFormatUnsupportedError`，本次已修复并归档，特此补记。
+
+### 现象与根因
+
+- 用户报 `history unavailable for session "session-6868e5f9-..."`，判定门点名
+  `model-router/route`（seq 261381）未知且不可忽略。
+- 根因：**v2 批量修复（覆盖到备份原件为止）与 profile 部署 v0.0.8（删写补丁版）之间存在时间窗
+  （8/27 17:00–18:49）**，旧版插件（仍带 `emitRouteEvent` 的 npm 0.0.6/0.0.7）在 2 个会话中
+  继续追加了未带 `ignorable` 的 `model-router/route` 事件：
+  - `--Users-weigaolei-CodeSpace-deepseek--/session-6868e5f9-a611-4571-826e-127ae7cfe365`：372 条
+  - `--Users-weigaolei-CodeSpace-work--/session-04ec58aa-b1e6-428b-9024-e4186ec06e28`：10 条
+
+### 修复（v3）
+
+- 与 v2 的关键区别：**以当前现役工件为源（而非备份原件）**，因此保留修复后新追加的尾部，
+  只给未标记的目标事件补 `ignorable:true`，重建两帧（帧1=表头行，帧2=其余事件）。
+- 校验与 v2 相同四重：全量解码==补丁明文；首帧单独解码==表头行；非目标行零字节改动、
+  目标行仅增 `ignorable:true`；未知且不可忽略计数除目标归零外零变化。另加真实读取门 replica
+  （`KNOWN_SESSION_EVENT_TYPES` + `adoptSessionEvent` 信封校验）：修复前 REFUSE、修复后 ACCEPT。
+- 备份与脚本：`~/.dsh/backups/dsh-model-router-fix-20260829/`（原件按原目录树 +
+  `scripts/mr-repair-v3.cjs`、`scripts/mr_gatecheck.cjs`）。
+- 终验：全盘 88 个工件扫描 0 未标记、0 其他未知类型；备份与修复前原件逐字节一致。
+
+### 教训（务必遵守）
+
+1. **v2/v3 修复后必须确认运行中的 profile 已切换到不再写事件的新版**：检查
+   `~/.dsh/profiles/<name>/node_modules/<插件>/lib/index.js` 中无 `session.append`/
+   `emitRouteEvent`/`KNOWN_SESSION_EVENT_TYPES`。当前 web profile 已装 0.0.8，三处均 0 命中。
+2. 若再遇同款报错，先 `zstd -dc` 之后按 `type==='model-router/route' && ignorable!==true` 统计，
+   确认是"新尾部"还是"换机恢复了未修复快照"；前者用 v3（以现役为源），后者用 v2（以备份为源）。
