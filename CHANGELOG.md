@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.0.10 (2026-09-11)
+
+- **修复 - DSH 0.1.5 下对话窗口组件全部消失（套餐选择器 + 路由状态徽章）**：0.1.5 的 `modelDirectories.directoryFor` 内部访问 `sessions.scope/binding` → `remote.session` 服务，而 entry inject 在插件 fiber 上执行、受 cordis 注入声明权限约束——插件 root inject 组未声明 `remote.session`，`directoryFor` 抛 `cannot get property "remote.session" without inject`，entry 被 slots 系统静默摘除（渲染期abdicate）：single 槽 `conversation.input.model` 被原生模型选择器顶回，list 槽 `conversation.input.left` 留下死行。修复：root inject 组补声明 `remote` / `remote.session`（对齐第一方 `dsh-client-ui-model-selection` 的注入面）；另给 PackageSelect 加 directory 为 null 时的空 store 兜底。已在 DSH 0.1.5-rc.1 实测：套餐选择器与路由徽章恢复渲染、44 项单测全过。
+
+## 0.0.9 (2026-09-11)
+
+
 ## 0.0.9 (2026-09-11)
 
 - **修复 - DSH 0.1.2+ 安装后报错（`installSettingsSection` 导出被移除）**：`@deepseek-ai/dsh-settings` 自 `0.1.2-rc.1` 起移除了自由函数导出 `installSettingsSection`（规范形态变为 `SettingsProvider.installSection` 方法），插件的具名导入在模块求值期直接抛 `SyntaxError`——即 #2 报告的「升级 dsh 后安装插件报错」。现改为 namespace 导入 + 运行时探测：`<=0.1.1` 走自由函数、`>=0.1.2` 走 `ctx.settings.installSection`（插件已 inject `settings`，apply 时服务必然已解析），两条路径语义一致（register base 层 + setSource + watch + onChange + 卸载回退 entry）。已在 DSH `0.1.5-rc.1`（web profile）实测：插件正常加载、`/api/model-router/*` 全部可用。
