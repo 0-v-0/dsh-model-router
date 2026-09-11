@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.0.9 (2026-09-11)
+
+- **修复 - DSH 0.1.2+ 安装后报错（`installSettingsSection` 导出被移除）**：`@deepseek-ai/dsh-settings` 自 `0.1.2-rc.1` 起移除了自由函数导出 `installSettingsSection`（规范形态变为 `SettingsProvider.installSection` 方法），插件的具名导入在模块求值期直接抛 `SyntaxError`——即 #2 报告的「升级 dsh 后安装插件报错」。现改为 namespace 导入 + 运行时探测：`<=0.1.1` 走自由函数、`>=0.1.2` 走 `ctx.settings.installSection`（插件已 inject `settings`，apply 时服务必然已解析），两条路径语义一致（register base 层 + setSource + watch + onChange + 卸载回退 entry）。已在 DSH `0.1.5-rc.1`（web profile）实测：插件正常加载、`/api/model-router/*` 全部可用。
+- **i18n - 设置面板接入宿主 locale 注册表（#1）**：面板此前约 165 条文案全部为硬编码中文字符串，任何语言包都无法触及。本次将全部 UI 文案提取为 `model-router` 命名空间的语义化 key，经 `@deepseek-ai/dsh-client-locale` 注册：
+  - 插件注册 `zh`/`en` 双字典（`ctx.locale.register('model-router', { zh, en })`，`ctx.effect` 托管、卸载自动清理）；中文用户看到的文案与原版逐字一致（zh 字典即原字符串）。
+  - 组件经 `ctx.locale.bind(ns)` 取 `t`，`useT()`（`useSyncExternalStore` + `locale.subscribe` 版本号）在语言切换时免刷新重渲染；设置分区 tab 标签用第一方同款 `label: () => t('panel.title')` + `locale` 字段形态。
+  - locale 服务缺失的极老宿主（`<0.1.0-rc.8`）走独立 inject 组不触发，面板回退 zh 字典，行为与旧版完全一致；第三方语言包（fr/de/ja…）现可对同一命名空间 `register` 补充翻译，无需改插件。
+  - 已在 DSH `0.1.5-rc.1` 实测：English 环境下面板全英文渲染，切换 中文 ↔ English 面板免刷新跟随，中英文案与原版一致。
+
 ## 0.0.8 (2026-08-27)
 
 - **治本 - 删除会话事件落盘（卸载兼容）**：此前每次路由决策都把 `model-router/route` 事件 `session.append` 进会话日志，供对话窗口徽章订阅实时消费。该事件对会话重建零价值（纯实时广播），却因不在 harness 事件白名单且 `append` 不透传 `ignorable` 标记，导致**卸载本插件后所有含该事件的会话触发 `SessionFormatUnsupportedError` 整份拒载**。本次彻底删除「写会话日志」：

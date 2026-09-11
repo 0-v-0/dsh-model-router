@@ -42,11 +42,12 @@ dsh plugin --profile web add @welsione/dsh-model-router
 | 档位名称 | 每套餐独立自定义档位显示名（`routes.<id>.tierNames`），彩色胶囊点击即改名，对话窗口同步展示 |
 | 模型能力写回 | 管理面板可编辑自定义供应商模型能力（思考级别档位/contextWindow/maxTokens）并写回宿主 `llm-pi-ai`，热重载生效 |
 | 管理面板 | DSH 设置页内置「模型路由」卡片，路由统计/冷却/健康度/能力编辑，修改自动保存；对话窗口套餐选择器实时路由状态 |
+| 界面语言 | 面板文案经宿主 locale 注册表（`model-router` 命名空间）提供 zh/en 双语，跟随界面语言免刷新切换；第三方语言包可对同一命名空间补充翻译 |
 | 会话安全 | 会话事件可恢复、跨 provider 自动清洗 `replayState` |
 
 ## Compatibility / 兼容性
 
-- DSH `0.1.0-rc.x`（`0.1.0-rc.8` 实测）· Node.js ≥ 22（React 18/19）· 最后验证 2026-08-22。
+- DSH `0.1.0-rc.x` – `0.1.5-rc.x`（`0.1.5-rc.1` 实测，兼容 0.1.2 起的 `settings.installSection` 新 API）· Node.js ≥ 22（React 18/19）· 最后验证 2026-09-11。
 
 ## Install / Uninstall · 安装 / 卸载
 

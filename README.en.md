@@ -44,11 +44,12 @@ Right: the "统一模型路由" settings panel — candidate chains per plan wit
 | Tier names | Per-plan custom tier display names (`routes.<id>.tierNames`), click-to-rename colored capsules, synced to the chat plan menu |
 | Model capability write-back | Edit custom-provider model capabilities (reasoning effort / contextWindow / maxTokens) in the panel, written back to the host `llm-pi-ai`, hot-reloaded |
 | Management panel | Built-in 模型路由 card in DSH Settings with route stats / cooldown / health / capability editing, auto-save; live routing status in the chat toolbar |
+| UI language | Panel copy goes through the host locale registry (`model-router` namespace) with shipped zh/en dictionaries and reload-free switching; third-party language packs can register more languages for the same namespace |
 | Session safety | Recoverable route events, automatic `replayState` sanitization across providers |
 
 ## Compatibility
 
-- DSH `0.1.0-rc.x` (verified on `0.1.0-rc.8`) · Node.js ≥ 22 (React 18/19) · Last verified 2026-08-22.
+- DSH `0.1.0-rc.x` – `0.1.5-rc.x` (verified on `0.1.5-rc.1`; compatible with the `settings.installSection` API introduced in 0.1.2) · Node.js ≥ 22 (React 18/19) · Last verified 2026-09-11.
 
 ## Install / Uninstall
 
