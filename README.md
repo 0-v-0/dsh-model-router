@@ -37,6 +37,8 @@ dsh plugin --profile web add @welsione/dsh-model-router
 | 多套餐路由 | 多个套餐（Route Group）并存，每套餐独立三档候选链与档位名，按需选用 |
 | 自动故障转移 | 主候选首 token 前失败（限流/配额/认证/网络/模型不存在/空响应）自动切下一候选；失败候选**分级冷却**（限流短、服务端中、认证长）+ 连续失败**指数退避**（封顶 30 分钟） |
 | 健康度择优 | 候选按滑动窗口**时间衰减 + 错误码加权**评分重排——最近结果权重高，服务端类失败扣分重、限流类轻，稳定成功的提前、频繁失败的延后，可一键关闭 |
+| 会话负载均衡 | **least-connections** 负载均衡：按各候选当前运行中会话数排序，空闲候选（运行中会话少）优先，新会话自动路由到负载最轻的模型。权重可调，设 0 禁用 |
+| 内容感知选档 | 用户未手动选档时，根据请求内容自动选档：**图片** → 跨所有档找支持图片输入的候选，选运行中会话数最少的；**长文本** → 跨所有档找上下文窗口足够的候选，选运行中会话数最少的。无合适则保持默认档 |
 | 三档分级 + 手动档位 | 每套餐 `tier1` 轻量 · `tier2` 标准 · `tier3` 强大，按 `purpose` 自动选档、档空逐级降档；对话窗口可**会话级手动选档** |
 | 思考级别 | 每候选可配 `reasoningEffort`，保存时实际请求预检，只允许宿主真正支持的档位 |
 | 档位名称 | 每套餐独立自定义档位显示名（`routes.<id>.tierNames`），彩色胶囊点击即改名，对话窗口同步展示 |
@@ -68,7 +70,7 @@ dsh plugin --profile web remove @welsione/dsh-model-router  # 卸载
 
 ## Configuration / 配置
 
-面板可视化编辑 `enabled / cooldownMs / maxSwitchesPerStep / healthRanking / reasoningEffortsFallback / routes`（含每套餐 `tierNames`）。完整配置表、模型能力写回宿主 `llm-pi-ai` 与面板 API 见 [docs/usage.md](docs/usage.md#配置)。
+面板可视化编辑 `enabled / cooldownMs / maxSwitchesPerStep / healthRanking / sessionLoadWeight / contentAwareTier / contentAwareTierTextThreshold / reasoningEffortsFallback / routes`（含每套餐 `tierNames`）。完整配置表、模型能力写回宿主 `llm-pi-ai` 与面板 API 见 [docs/usage.md](docs/usage.md#配置)。
 
 ## Permissions & data / 权限与数据
 
