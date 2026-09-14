@@ -19,6 +19,7 @@ model-router:
   cooldownBackoff: 2        # 连续失败冷却退避倍数
   maxSwitchesPerStep: 3
   healthRanking: true      # 健康度择优（稳定成功的候选优先）
+  sessionLoadWeight: 1     # 会话负载权重（least-connections：运行中会话少的候选优先；0=禁用）
   routes:
     deepseek-v4-flash:      # 统一逻辑 ModelID
       tierNames: { tier3: 旗舰 }   # 可选：该套餐的自定义档位显示名
@@ -46,6 +47,7 @@ model-router:
 | maxSwitchesPerStep | 3 | 每个 step 最多切换候选次数（1-10） |
 | healthRanking | true | 健康度择优：按滑动窗口内成功/失败重排候选链（稳定成功提前、频繁失败后移） |
 | healthWindowSize | 8 | 每个候选健康度统计的滑动窗口大小（3-30） |
+| sessionLoadWeight | 1 | 会话负载权重（least-connections 负载均衡）：运行中会话数越多的候选分数越低 → 排越后，新会话优先路由到空闲候选。设 0 禁用（退化为纯健康度排序）；推荐 1-3。仅 `healthRanking` 开启时生效。排除当前会话自身的负载，避免自己惩罚自己 |
 | reasoningEffortsFallback | ["low","medium","high"] | 目录未标注推理能力的候选，允许手动选择的思考级别候选集。保存/面板时用实际请求预检 `resolveCallConfig` 过滤，只保留宿主真正接受的档位。默认取 models.dev 最常见档位，可自定义如 ["none","minimal","low","medium","high","xhigh","max"]，设 [] 关闭兜底 |
 | routes | {} | 统一 ModelID → { tier1/2/3: [候选] } |
 | routes.<id>.tierNames | {} | 该套餐的自定义档位显示名：tier1/tier2/tier3 → 显示名（如 `{tier3: 旗舰}`）；缺省回退 pro / normal / lite。同名档位只展示一次；设置面板彩色胶囊点击即改名（Enter 提交 / Esc 取消 / 清空恢复默认） |
