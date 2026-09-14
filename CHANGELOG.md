@@ -3,6 +3,7 @@
 ## Unreleased
 
 - **新功能 - 一键按模型名分组添加候选链**：设置页路由卡片标题旁新增「按模型名分组」折叠按钮，展开后显示供应商目录按模型名分组列表（多供应商模型优先排列）。点击任一模型名即可一键创建路由——将该模型的所有供应商作为 tier2 候选链（自动故障转移）；也可点「全部添加多供应商模型」批量创建。已添加的路由显示「已添加」徽章并禁用重复添加。
+- **新功能 - 不支持思考级别时自动剥离并重试（auto-strip reasoning effort）**：候选配了 `reasoningEffort` 但模型/供应商实际不支持时（宿主预检拒绝 `UNSUPPORTED_REASONING_EFFORT`，或供应商 API 返回 4xx + reasoning/effort/thinking 关键词），路由层自动**在插件内**剥离 `reasoningEffort` 并重试同一候选——**不触发宿主层 `dsh-llm-retry`**（不 yield finish+error，宿主看不到失败，不会整链重试）。同时自动更新配置：持久化移除该候选的 `reasoningEffort` 字段（best-effort 非阻塞写回 `settings.update`），内存 `effortStrippedKeys` 集合保证当前进程后续请求不再发送该参数。配置变更时清空集合，让用户重新配置的档位有机会被重新尝试。核心纯函数 `isReasoningEffortUnsupported` 带单测覆盖（6 个用例：宿主码 / 供应商 4xx+关键词 / does-not-support+reason|think / 不匹配错误 / null 入参）。
 
 ## 0.0.10 (2026-09-11)
 

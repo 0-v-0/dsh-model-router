@@ -7,6 +7,7 @@ import {
   isRetryableFailure,
   isTransientFailure,
   pickRepresentativeFailure,
+  isReasoningEffortUnsupported,
   cooldownDurationMs,
   failureWeight,
   normalizeRoute,
@@ -101,6 +102,35 @@ test('pickRepresentativeFailure: empty / invalid input -> null', () => {
   assert.equal(pickRepresentativeFailure(null), null)
 })
 
+test('isReasoningEffortUnsupported: host rejection code', () => {
+  assert.equal(isReasoningEffortUnsupported({ code: 'UNSUPPORTED_REASONING_EFFORT' }), true)
+})
+
+test('isReasoningEffortUnsupported: provider 4xx with reasoning/effort keyword', () => {
+  assert.equal(isReasoningEffortUnsupported({ status: 400, message: 'reasoning_effort is not supported for this model' }), true)
+  assert.equal(isReasoningEffortUnsupported({ status: 400, message: 'thinking is not available for this model' }), true)
+  assert.equal(isReasoningEffortUnsupported({ status: 422, message: 'Unrecognized parameter: extra_body' }), true)
+})
+
+test('isReasoningEffortUnsupported: provider 4xx with does-not-support + reasoning/think', () => {
+  assert.equal(isReasoningEffortUnsupported({ status: 400, message: 'model does not support reasoning' }), true)
+  assert.equal(isReasoningEffortUnsupported({ status: 400, message: 'thinking is not available' }), true)
+})
+
+test('isReasoningEffortUnsupported: non-matching errors -> false', () => {
+  assert.equal(isReasoningEffortUnsupported({ status: 500, message: 'Internal Server Error' }), false)
+  assert.equal(isReasoningEffortUnsupported({ status: 401, message: 'Unauthorized' }), false)
+  assert.equal(isReasoningEffortUnsupported({ status: 429, message: 'Rate limit exceeded' }), false)
+  assert.equal(isReasoningEffortUnsupported({ code: 'AUTH' }), false)
+  assert.equal(isReasoningEffortUnsupported({ code: 'RATE_LIMIT', status: 429 }), false)
+  // 4xx but message has no reasoning/thinking keyword
+  assert.equal(isReasoningEffortUnsupported({ status: 400, message: 'Invalid model ID' }), false)
+})
+
+test('isReasoningEffortUnsupported: null/undefined -> false', () => {
+  assert.equal(isReasoningEffortUnsupported(null), false)
+  assert.equal(isReasoningEffortUnsupported(undefined), false)
+})
 test('normalizeRoute: migrates legacy simple/complex when new slots empty', () => {
   const legacy = { simple: [cand('a', 'm1')], complex: [cand('b', 'm2')] }
   const out = normalizeRoute(legacy)
