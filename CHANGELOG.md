@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **新功能 - 一键按模型名分组添加候选链**：设置页路由卡片标题旁新增「按模型名分组」折叠按钮，展开后显示供应商目录按模型名分组列表（多供应商模型优先排列）。点击任一模型名即可一键创建路由——将该模型的所有供应商作为 tier2 候选链（自动故障转移）；也可点「全部添加多供应商模型」批量创建。已添加的路由显示「已添加」徽章并禁用重复添加。
+
 ## 0.0.10 (2026-09-11)
 
 - **修复 - DSH 0.1.5 下对话窗口组件全部消失（套餐选择器 + 路由状态徽章）**：0.1.5 的 `modelDirectories.directoryFor` 内部访问 `sessions.scope/binding` → `remote.session` 服务，而 entry inject 在插件 fiber 上执行、受 cordis 注入声明权限约束——插件 root inject 组未声明 `remote.session`，`directoryFor` 抛 `cannot get property "remote.session" without inject`，entry 被 slots 系统静默摘除（渲染期abdicate）：single 槽 `conversation.input.model` 被原生模型选择器顶回，list 槽 `conversation.input.left` 留下死行。修复：root inject 组补声明 `remote` / `remote.session`（对齐第一方 `dsh-client-ui-model-selection` 的注入面）；另给 PackageSelect 加 directory 为 null 时的空 store 兜底。已在 DSH 0.1.5-rc.1 实测：套餐选择器与路由徽章恢复渲染、44 项单测全过。
