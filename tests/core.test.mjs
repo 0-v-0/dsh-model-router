@@ -21,6 +21,8 @@ import {
   estimateMessageTokens,
   estimateRequestTokens,
   filterChainByContext,
+  hasImageContent,
+  recommendTierByContent,
 } from '../lib/core.mjs'
 
 const cand = (provider, model, reasoningEffort) => {
@@ -287,6 +289,61 @@ test('rankChainByHealth: no evidence / disabled input returns original order', (
 })
 
 // ------------------------------------------------------------------
+// 会话负载感知（least-connections load balancing）
+// ------------------------------------------------------------------
+test('rankChainByHealth: session load demotes candidates with more running sessions', () => {
+  const a = cand('v', 'm1') // 配置顺序在前
+  const b = cand('o', 'm2') // 配置顺序在后
+  // 无健康记录（score=0），a 有 3 个运行中会话，b 有 0 个
+  const load = new Map([[cooldownKey(a), 3]])
+  const out = rankChainByHealth([a, b], null, load, 1)
+  // a: 0 - 3*1 = -3；b: 0 - 0 = 0 → b 排前
+  assert.deepEqual(out.map(cooldownKey), [cooldownKey(b), cooldownKey(a)])
+})
+test('rankChainByHealth: sessionLoadWeight=0 disables session load (backward compat)', () => {
+  const a = cand('v', 'm1')
+  const b = cand('o', 'm2')
+  const health = new Map([[cooldownKey(a), { ok: 0, fail: 0 }], [cooldownKey(b), { ok: 2, fail: 0 }]])
+  const load = new Map([[cooldownKey(a), 5]]) // a 有 5 个会话
+  // weight=0 → loadPenalty=0 → 纯健康度排序：b(score=2) > a(score=0)
+  const out = rankChainByHealth([a, b], health, load, 0)
+  assert.deepEqual(out.map(cooldownKey), [cooldownKey(b), cooldownKey(a)])
+})
+test('rankChainByHealth: combines health score and session load penalty', () => {
+  const healthy = cand('v', 'm1') // 健康 score=5，但 4 个会话
+  const unhealthy = cand('o', 'm2') // 健康 score=1，但 0 个会话
+  const health = new Map([
+    [cooldownKey(healthy), { ok: 5, fail: 0 }],
+    [cooldownKey(unhealthy), { ok: 1, fail: 0 }],
+  ])
+  const load = new Map([[cooldownKey(healthy), 4]])
+  // weight=1: healthy 5-4=1，unhealthy 1-0=1 → 同分，稳定排序保持配置顺序
+  let out = rankChainByHealth([healthy, unhealthy], health, load, 1)
+  assert.deepEqual(out.map(cooldownKey), [cooldownKey(healthy), cooldownKey(unhealthy)])
+  // weight=2: healthy 5-8=-3，unhealthy 1-0=1 → unhealthy 排前
+  out = rankChainByHealth([healthy, unhealthy], health, load, 2)
+  assert.deepEqual(out.map(cooldownKey), [cooldownKey(unhealthy), cooldownKey(healthy)])
+})
+test('rankChainByHealth: equal session loads keep configured order (stable)', () => {
+  const a = cand('v', 'm1')
+  const b = cand('o', 'm2')
+  const c = cand('x', 'm3')
+  // 两个都有 2 个会话，无健康记录 → 同分（0-2=−2），稳定排序保持配置顺序
+  const load = new Map([[cooldownKey(a), 2], [cooldownKey(b), 2]])
+  const out = rankChainByHealth([a, b, c], null, load, 1)
+  assert.deepEqual(out.map(cooldownKey), [cooldownKey(c), cooldownKey(a), cooldownKey(b)])
+  // c 无会话 → score=0 > a/b 的 −2 → c 排最前
+})
+test('rankChainByHealth: null sessionLoadByKey is safe (no crash, health-only)', () => {
+  const a = cand('v', 'm1')
+  const b = cand('o', 'm2')
+  const health = new Map([[cooldownKey(a), { ok: 1, fail: 0 }]])
+  // 不传 sessionLoadByKey → runningCount=0 → 纯健康度
+  const out = rankChainByHealth([a, b], health)
+  assert.deepEqual(out.map(cooldownKey), [cooldownKey(a), cooldownKey(b)])
+})
+
+// ------------------------------------------------------------------
 // 思考级别兜底（reasoning-efforts-fallback）
 // ------------------------------------------------------------------
 test('effortsForCandidate: listed model keeps catalog efforts (verified)', () => {
@@ -403,3 +460,134 @@ test('filterChainByContext: margin/reserve defaults are safe', () => {
   assert.equal(kept2.length, 0)
 })
 
+// ------------------------------------------------------------------
+// 内容感知选档（content-aware tier selection）
+// ------------------------------------------------------------------
+
+test('hasImageContent: detects image blocks in messages', () => {
+  // 纯文本消息 → 无图片
+  assert.equal(hasImageContent({ messages: [{ role: 'user', content: [{ type: 'text', text: 'hello' }] }] }), false)
+  // string content 兼容
+  assert.equal(hasImageContent({ messages: [{ role: 'user', content: 'hello' }] }), false)
+  // 图片块
+  assert.equal(hasImageContent({ messages: [{ role: 'user', content: [{ type: 'image', attachment: { bytes: 100 } }] }] }), true)
+  // 混合内容（文本+图片）
+  assert.equal(hasImageContent({ messages: [{ role: 'user', content: [{ type: 'text', text: '看图' }, { type: 'image', attachment: { bytes: 200 } }] }] }), true)
+})
+
+test('hasImageContent: detects images in nested tool-result content', () => {
+  // tool-result 内嵌图片（工具返回图片）
+  assert.equal(hasImageContent({
+    messages: [{
+      role: 'user',
+      content: [{ type: 'tool-result', toolCallId: 'c1', content: [{ type: 'image', attachment: { bytes: 300 } }] }]
+    }]
+  }), true)
+  // tool-result 内嵌纯文本 → 无图片
+  assert.equal(hasImageContent({
+    messages: [{
+      role: 'user',
+      content: [{ type: 'tool-result', toolCallId: 'c1', content: [{ type: 'text', text: 'result' }] }]
+    }]
+  }), false)
+})
+
+test('hasImageContent: empty / null / missing messages → false', () => {
+  assert.equal(hasImageContent({}), false)
+  assert.equal(hasImageContent({ messages: [] }), false)
+  assert.equal(hasImageContent(null), false)
+  assert.equal(hasImageContent(undefined), false)
+})
+
+test('recommendTierByContent: images → picks tier with image-capable candidate (fewest sessions)', () => {
+  const r = route(
+    [cand('a', 'm1')],                              // tier1: 无图片支持
+    [cand('b', 'm2')],                              // tier2: 无图片支持
+    [cand('c', 'm3')]                               // tier3: 有图片支持
+  )
+  const imageSupportOf = (c) => c.model === 'm3'
+  const load = new Map()
+  // 图片内容 → tier3 的 m3 支持图片
+  const tier = recommendTierByContent(r, true, 0, () => null, imageSupportOf, load)
+  assert.equal(tier, 'tier3')
+})
+
+test('recommendTierByContent: images → fewest running sessions wins across tiers', () => {
+  const r = route(
+    [cand('a', 'img1')],   // tier1: 图片支持，2 个会话
+    [cand('b', 'img2')],   // tier2: 图片支持，0 个会话
+    [cand('c', 'img3')]    // tier3: 图片支持，5 个会话
+  )
+  const imageSupportOf = () => true
+  const load = new Map([['a/img1', 2], ['b/img2', 0], ['c/img3', 5]])
+  const tier = recommendTierByContent(r, true, 0, () => null, imageSupportOf, load)
+  assert.equal(tier, 'tier2') // 0 个会话最少
+})
+
+test('recommendTierByContent: long text → picks tier with sufficient context window', () => {
+  const r = route(
+    [cand('a', 'small')],   // tier1: 32K 窗口
+    [cand('b', 'medium')],  // tier2: 128K 窗口
+    [cand('c', 'large')]    // tier3: 1M 窗口
+  )
+  const windows = { 'a/small': 32768, 'b/medium': 131072, 'c/large': 1048576 }
+  const windowOf = (c) => windows[cooldownKey(c)] ?? null
+  const load = new Map()
+  // 200K token → tier1(32K) 和 tier2(128K) 都不够，tier3(1M) 够
+  const tier = recommendTierByContent(r, false, 200000, windowOf, () => true, load, { margin: 0.9, reserveTokens: 8192 })
+  assert.equal(tier, 'tier3')
+})
+
+test('recommendTierByContent: long text → fewest sessions among sufficient-window candidates', () => {
+  const r = route(
+    [cand('a', 'm1')],   // tier1: 1M 窗口，3 个会话
+    [cand('b', 'm2')],   // tier2: 1M 窗口，1 个会话
+    [cand('c', 'm3')]    // tier3: 1M 窗口，0 个会话
+  )
+  const windowOf = () => 1048576 // 都够大
+  const load = new Map([['a/m1', 3], ['b/m2', 1], ['c/m3', 0]])
+  // 100K token，所有候选窗口都够 → 取会话数最少的
+  const tier = recommendTierByContent(r, false, 100000, windowOf, () => true, load, { margin: 0.9, reserveTokens: 8192 })
+  assert.equal(tier, 'tier3')
+})
+
+test('recommendTierByContent: no suitable candidate → null', () => {
+  const r = route(
+    [cand('a', 'm1')],   // tier1: 无图片支持
+    [cand('b', 'm2')],   // tier2: 无图片支持
+  )
+  const imageSupportOf = () => false
+  const load = new Map()
+  // 图片但无候选支持图片 → null
+  const tier = recommendTierByContent(r, true, 0, () => null, imageSupportOf, load)
+  assert.equal(tier, null)
+})
+
+test('recommendTierByContent: both images and long text → candidate must satisfy both', () => {
+  const r = route(
+    [cand('a', 'm1')],   // tier1: 图片支持，32K 窗口
+    [cand('b', 'm2')],   // tier2: 无图片支持，1M 窗口
+    [cand('c', 'm3')]    // tier3: 图片支持，1M 窗口
+  )
+  const imageSupportOf = (c) => c.model === 'm1' || c.model === 'm3'
+  const windows = { 'a/m1': 32768, 'b/m2': 1048576, 'c/m3': 1048576 }
+  const windowOf = (c) => windows[cooldownKey(c)] ?? null
+  const load = new Map()
+  // 图片 + 200K token → tier1 有图片但窗口不够，tier2 窗口够但无图片，tier3 两者都满足
+  const tier = recommendTierByContent(r, true, 200000, windowOf, imageSupportOf, load, { margin: 0.9, reserveTokens: 8192 })
+  assert.equal(tier, 'tier3')
+})
+
+test('recommendTierByContent: empty route → null', () => {
+  const r = route()
+  assert.equal(recommendTierByContent(r, true, 0, () => null, () => true, new Map()), null)
+  assert.equal(recommendTierByContent(r, false, 100000, () => 1000000, () => true, new Map()), null)
+})
+
+test('recommendTierByContent: null sessionLoadByKey is safe', () => {
+  const r = route([cand('a', 'm1')], [cand('b', 'm2')], [])
+  const imageSupportOf = () => true
+  // null sessionLoadByKey → runningCount=0 → 所有候选同分（0），取 tier1
+  const tier = recommendTierByContent(r, true, 0, () => null, imageSupportOf, null)
+  assert.equal(tier, 'tier1')
+})
