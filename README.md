@@ -46,8 +46,8 @@ dsh plugin --profile web add @welsione/dsh-model-router
 | 供应商请求头 | 每供应商可配自定义请求头（`headers`），解决 OpenCode Go 等路由要求 `x-opencode-session` 报 `MissingSessionID` 的问题，热重载生效 |
 | 管理面板 | DSH 设置页内置「模型路由」卡片，路由统计/冷却/健康度/能力编辑，修改自动保存；对话窗口套餐选择器实时路由状态 |
 | 界面语言 | 面板文案经宿主 locale 注册表（`model-router` 命名空间）提供 zh/en 双语，跟随界面语言免刷新切换；第三方语言包可对同一命名空间补充翻译 |
+| 任务属性路由 | 任务画像（重要性/紧急性/幂等/复杂度/token 预算）× 模型属性（能力/速度/延迟/位置/信任/价格）自动排序与过滤：紧急任务优先低延迟、重要任务不足能力再罚、超预算候选跳过、非幂等任务禁重试禁切换、不可信候选只在只读环境工作。**默认关闭**，开启前先为候选标注模型属性 |
 | 会话安全 | 会话事件可恢复、跨 provider 自动清洗 `replayState` |
-
 ## Compatibility / 兼容性
 
 - DSH `0.1.0-rc.x` – `0.1.7-alpha.1`（`0.1.5-rc.2` 与 `0.1.7-alpha.1` 实测：三代 settings 接入自动兼容，0.1.7 走 `Config` 命名导出 + volatile 表单机制）· Node.js ≥ 22（React 18/19）· 最后验证 2026-09-23。多版本矩阵验证：`npm run verify:matrix`（见 [docs/verify-matrix-0.0.11.md](docs/verify-matrix-0.0.11.md)）。

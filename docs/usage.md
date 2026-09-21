@@ -53,8 +53,25 @@ model-router:
 | routes | {} | 统一 ModelID → { tier1/2/3: [候选] } |
 | routes.<id>.tierNames | {} | 该套餐的自定义档位显示名：tier1/tier2/tier3 → 显示名（如 `{tier3: 旗舰}`）；缺省回退 pro / normal / lite。同名档位只展示一次；设置面板彩色胶囊点击即改名（Enter 提交 / Esc 取消 / 清空恢复默认） |
 | manualTiers | {} | sessionId → 手动档位（面板写入，跨重启保留） |
-
-每个候选：`provider`（必填）、`model`（必填）、`reasoningEffort`（可选，保存时校验模型支持）。
+| taskRouting | 见下 | 任务属性 × 模型属性自动路由（**默认关闭**，开启后按任务画像匹配模型属性排序/过滤候选） |
+| taskRouting.enabled | false | 任务路由总开关；false 时全部新逻辑短路，路由行为与旧版完全一致 |
+| taskRouting.defaults | 见下 | 全局默认任务画像（分层：会话级 override > `routes.<id>.taskDefaults` > 此处） |
+| taskRouting.defaults.importance | normal | 重要性：normal / important（important 任务对能力不足再罚） |
+| taskRouting.defaults.urgency | not-urgent | 紧急性：not-urgent / urgent（urgent 任务对高延迟罚、低延迟加分） |
+| taskRouting.defaults.idempotent | true | 幂等：false = 非幂等任务，任何失败不重试不切换（防重复副作用） |
+| taskRouting.defaults.complexity | unknown | 复杂度：unknown / low / medium / high（对照候选 capability） |
+| taskRouting.defaults.tokenBudget | 0 | token 预算：0 = 不限；>0 时按 `price × token/1e6` 估算成本，超预算候选跳过 |
+| taskRouting.autoComplexity | true | complexity 未显式标注时按请求体量（token 估算）推断复杂度 |
+| taskRouting.complexityThresholds | {low:16384, high:65536} | 自动复杂度阈值：> low = medium，>= high = high |
+| taskRouting.weights | 见下 | 任务匹配排序权重（设 0 禁用对应维度） |
+| taskRouting.weights.capability | 1 | 能力差罚权重（对照任务复杂度） |
+| taskRouting.weights.latency | 1 | 延迟权重（紧急任务：高延迟罚、低延迟加分） |
+| taskRouting.weights.speed | 0.5 | 速度权重（紧急/重要任务：低速度罚、高速度加分） |
+| taskRouting.weights.price | 0.5 | 价格权重（同链内相对价差归一化，便宜优先） |
+| taskRouting.weights.importance | 1 | 重要性权重（重要任务：能力不足再罚） |
+| taskOverrides | {} | sessionId → 会话级任务画像（`/api/model-router/task` 维护，跨重启保留） |
+| routes.<id>.taskDefaults | {} | 该套餐的任务画像默认值（结构同 `taskRouting.defaults`） |
+每个候选：`provider`（必填）、`model`（必填）、`reasoningEffort`（可选，保存时校验模型支持）；任务路由开启后可用模型属性：`location`（internal/external，外部模型需配合脱敏插件如 dsh-redact）、`trust`（trusted/untrusted，不可信候选只在只读环境工作）、`speed`（unknown/low/medium/high）、`latency`（unknown/low/medium/high）、`capability`（low/medium/high）、`price`（每百万 token 成本，0 = 未知/免费）。
 
 ### 模型能力与请求头（写回宿主 llm-pi-ai · 已配置供应商）
 
@@ -75,6 +92,8 @@ model-router:
 | POST | `/api/model-router/tier` | 设置 / 清除会话手动档位 |
 | GET | `/api/model-router/model-capabilities` | 读宿主 `llm-pi-ai` 的 provider/models 能力（reasoningEfforts/contextWindow/maxTokens/input）+ 供应商请求头 + 目录解析的生效输入类型 |
 | POST | `/api/model-router/model-capabilities` | 写回能力：携带 `model` → 模型级（`null` 删除字段，如清除 input 声明）；不携带 `model` 且 `patch.headers` → 供应商级请求头（`{}` = 清除全部）。热重载生效 |
+| GET | `/api/model-router/task` | 读会话级任务画像（`?session=<id>` 单个，否则全量） |
+| POST | `/api/model-router/task` | 设置 / 清除会话级任务画像（`body.task` 空对象 = 清除） |
 
 ## 故障排查
 
