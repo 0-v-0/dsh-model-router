@@ -45,6 +45,7 @@ Right: the "统一模型路由" settings panel — candidate chains per plan wit
 | Model capability write-back | Edit custom-provider model capabilities (reasoning effort / contextWindow / maxTokens) in the panel, written back to the host `llm-pi-ai`, hot-reloaded |
 | Management panel | Built-in 模型路由 card in DSH Settings with route stats / cooldown / health / capability editing, auto-save; live routing status in the chat toolbar |
 | UI language | Panel copy goes through the host locale registry (`model-router` namespace) with shipped zh/en dictionaries and reload-free switching; third-party language packs can register more languages for the same namespace |
+| Task-aware routing | Match task profile (importance / urgency / idempotency / complexity / token budget) against model attributes (capability / speed / latency / location / trust / price) to rank and filter candidates: urgent tasks prefer low latency, important tasks penalize insufficient capability, over-budget candidates are skipped, non-idempotent tasks never retry/switch, untrusted candidates run read-only only. **Off by default** — annotate candidate attributes first |
 | Session safety | Recoverable route events, automatic `replayState` sanitization across providers |
 
 ## Compatibility
