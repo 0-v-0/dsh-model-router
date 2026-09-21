@@ -24,6 +24,13 @@ import {
   filterChainByContext,
   hasImageContent,
   recommendTierByContent,
+  capabilityLevel,
+  taskComplexityLevel,
+  autoComplexityFromTokens,
+  resolveTaskProfile,
+  filterChainByBudget,
+  rankChainForTask,
+  shouldRetryForTask,
 } from '../lib/core.mjs'
 
 const cand = (provider, model, reasoningEffort) => {
@@ -620,4 +627,179 @@ test('recommendTierByContent: null sessionLoadByKey is safe', () => {
   // null sessionLoadByKey → runningCount=0 → 所有候选同分（0），取 tier1
   const tier = recommendTierByContent(r, true, 0, () => null, imageSupportOf, null)
   assert.equal(tier, 'tier1')
+})
+
+// ------------------------------------------------------------------
+// 任务属性 × 模型属性路由（feature: task-aware routing）
+// ------------------------------------------------------------------
+
+const tcand = (provider, model, attrs = {}) => ({ provider, model, ...attrs })
+
+test('capabilityLevel: known levels map 0/1/2, unknown and missing default to medium', () => {
+  assert.equal(capabilityLevel({ capability: 'low' }), 0)
+  assert.equal(capabilityLevel({ capability: 'medium' }), 1)
+  assert.equal(capabilityLevel({ capability: 'high' }), 2)
+  assert.equal(capabilityLevel({ capability: 'unknown' }), 1)
+  assert.equal(capabilityLevel({}), 1)
+  assert.equal(capabilityLevel(undefined), 1)
+})
+
+test('taskComplexityLevel mirrors capabilityLevel scale', () => {
+  assert.equal(taskComplexityLevel({ complexity: 'low' }), 0)
+  assert.equal(taskComplexityLevel({ complexity: 'high' }), 2)
+  assert.equal(taskComplexityLevel({ complexity: 'unknown' }), 1)
+  assert.equal(taskComplexityLevel({}), 1)
+})
+
+test('autoComplexityFromTokens: thresholds and edges', () => {
+  const th = { low: 16384, high: 65536 }
+  assert.equal(autoComplexityFromTokens(0, th), 'low')
+  assert.equal(autoComplexityFromTokens(100, th), 'low')
+  assert.equal(autoComplexityFromTokens(16385, th), 'medium')
+  assert.equal(autoComplexityFromTokens(30000, th), 'medium')
+  assert.equal(autoComplexityFromTokens(65536, th), 'high')
+  assert.equal(autoComplexityFromTokens(100000, th), 'high')
+  // 无阈值 → 恒 low
+  assert.equal(autoComplexityFromTokens(99999, {}), 'low')
+  assert.equal(autoComplexityFromTokens(99999, { low: 0, high: 0 }), 'low')
+})
+
+test('resolveTaskProfile: session > route > global layering', () => {
+  const global = { importance: 'important', urgency: 'urgent', idempotent: false, complexity: 'high', tokenBudget: 100 }
+  const route = { importance: 'normal', complexity: 'medium' }
+  const session = { urgency: 'not-urgent' }
+  const p = resolveTaskProfile({ session, route, global })
+  assert.equal(p.importance, 'normal')        // route 覆盖 global
+  assert.equal(p.urgency, 'not-urgent')       // session 覆盖 route/global
+  assert.equal(p.idempotent, false)           // 继承 global
+  assert.equal(p.complexity, 'medium')        // route 覆盖 global
+  assert.equal(p.tokenBudget, 100)
+})
+
+test('resolveTaskProfile: defaults and auto complexity', () => {
+  const p = resolveTaskProfile({})
+  assert.equal(p.importance, 'normal')
+  assert.equal(p.urgency, 'not-urgent')
+  assert.equal(p.idempotent, true)
+  assert.equal(p.complexity, 'unknown')
+  assert.equal(p.tokenBudget, 0)
+  // autoComplexity 覆盖 unknown
+  const auto = resolveTaskProfile({ autoComplexity: true, neededTokens: 200000, thresholds: { low: 16384, high: 65536 } })
+  assert.equal(auto.complexity, 'high')
+  // 显式复杂度不被自动覆盖
+  const explicit = resolveTaskProfile({ session: { complexity: 'low' }, autoComplexity: true, neededTokens: 200000, thresholds: { low: 16384, high: 65536 } })
+  assert.equal(explicit.complexity, 'low')
+})
+
+test('filterChainByBudget: skip over-budget, pass free/unknown price, 0 budget unlimited', () => {
+  const chain = [
+    tcand('a', 'm1', { price: 10 }),
+    tcand('b', 'm2', { price: 2 }),
+    tcand('c', 'm3', { price: 0 }),
+    tcand('d', 'm4', {}),
+  ]
+  const priceOf = (c) => c.price ?? 0
+  // 100K token，预算 $5：a 成本 $1 通过；500K token 预算 $2：a 成本 $5 跳过
+  const { chain: kept, skipped } = filterChainByBudget(chain, 500000, priceOf, 2)
+  assert.deepEqual(kept.map((c) => c.model), ['m2', 'm3', 'm4'])
+  assert.equal(skipped.length, 1)
+  assert.equal(skipped[0].candidate.model, 'm1')
+  // 0 预算 = 不限
+  const all = filterChainByBudget(chain, 500000, priceOf, 0)
+  assert.equal(all.chain.length, 4)
+  assert.equal(all.skipped.length, 0)
+  // 0 token → 不过滤
+  const zero = filterChainByBudget(chain, 0, priceOf, 2)
+  assert.equal(zero.chain.length, 4)
+})
+
+test('filterChainByBudget: non-array chain is safe', () => {
+  assert.deepEqual(filterChainByBudget(undefined, 100, () => 1, 1).chain, [])
+})
+
+test('rankChainForTask: complexity picks matching capability', () => {
+  const chain = [
+    tcand('a', 'm1', { capability: 'low' }),
+    tcand('b', 'm2', { capability: 'high' }),
+    tcand('c', 'm3', { capability: 'medium' }),
+  ]
+  const high = rankChainForTask(chain, { complexity: 'high', urgency: 'not-urgent', importance: 'normal' })
+  assert.equal(high[0].model, 'm2')   // high 复杂度 → 高能力优先
+  const low = rankChainForTask(chain, { complexity: 'low', urgency: 'not-urgent', importance: 'normal' })
+  assert.equal(low[0].model, 'm1')   // low 复杂度 → 低能力优先（省成本语义）
+})
+
+test('rankChainForTask: urgent prefers low latency', () => {
+  const chain = [
+    tcand('a', 'm1', { latency: 'high', capability: 'medium' }),
+    tcand('b', 'm2', { latency: 'low', capability: 'medium' }),
+    tcand('c', 'm3', { latency: 'unknown', capability: 'medium' }),
+  ]
+  const urgent = rankChainForTask(chain, { complexity: 'medium', urgency: 'urgent', importance: 'normal' })
+  assert.equal(urgent[0].model, 'm2') // 低延迟第一
+  assert.equal(urgent[2].model, 'm1') // 高延迟最后（unknown 不罚，排中间）
+  // 非紧急 → 顺序不变（同能力，无其他维度）
+  const calm = rankChainForTask(chain, { complexity: 'medium', urgency: 'not-urgent', importance: 'normal' })
+  assert.deepEqual(calm.map((c) => c.model), ['m1', 'm2', 'm3'])
+})
+
+test('rankChainForTask: important penalizes capability below complexity', () => {
+  const chain = [
+    tcand('a', 'm1', { capability: 'low' }),
+    tcand('b', 'm2', { capability: 'medium' }),
+  ]
+  const important = rankChainForTask(chain, { complexity: 'high', urgency: 'not-urgent', importance: 'important' })
+  assert.equal(important[0].model, 'm2')
+  // 普通任务：能力差罚相同，但无 importance 附加罚 → 排序仍 m2 优先（|0-2|<|1-2|）
+  const normal = rankChainForTask(chain, { complexity: 'high', urgency: 'not-urgent', importance: 'normal' })
+  assert.equal(normal[0].model, 'm2')
+})
+
+test('rankChainForTask: price favors cheaper within same capability tier', () => {
+  const chain = [
+    tcand('a', 'm1', { capability: 'medium', price: 10 }),
+    tcand('b', 'm2', { capability: 'medium', price: 1 }),
+  ]
+  const r = rankChainForTask(chain, { complexity: 'medium', urgency: 'not-urgent', importance: 'normal' })
+  assert.equal(r[0].model, 'm2')
+  // 权重归零 → 稳定排序保持原顺序
+  const noPrice = rankChainForTask(chain, { complexity: 'medium', urgency: 'not-urgent', importance: 'normal' }, { price: 0 })
+  assert.equal(noPrice[0].model, 'm1')
+})
+
+test('rankChainForTask: unknown attributes never penalize', () => {
+  const chain = [
+    tcand('a', 'm1', { latency: 'unknown', speed: 'unknown', capability: 'unknown' }),
+    tcand('b', 'm2', { latency: 'unknown', speed: 'unknown', capability: 'unknown' }),
+  ]
+  const r = rankChainForTask(chain, { complexity: 'medium', urgency: 'urgent', importance: 'important' })
+  assert.deepEqual(r.map((c) => c.model), ['m1', 'm2'])  // 稳定排序：同分保顺序
+})
+
+test('rankChainForTask: stable sort preserves config order on ties', () => {
+  const chain = [
+    tcand('a', 'm1', { capability: 'medium' }),
+    tcand('b', 'm2', { capability: 'medium' }),
+    tcand('c', 'm3', { capability: 'medium' }),
+  ]
+  const r = rankChainForTask(chain, { complexity: 'medium', urgency: 'not-urgent', importance: 'normal' })
+  assert.deepEqual(r.map((c) => c.model), ['m1', 'm2', 'm3'])
+})
+
+test('rankChainForTask: single/short chains pass through', () => {
+  const one = [tcand('a', 'm1')]
+  assert.equal(rankChainForTask(one, { complexity: 'high', urgency: 'urgent', importance: 'important' }), one)
+  assert.equal(rankChainForTask(undefined, { complexity: 'high' }), undefined)
+  assert.equal(rankChainForTask(one, null), one)
+})
+
+test('shouldRetryForTask: non-idempotent never retries, idempotent delegates', () => {
+  const profileNonIdem = { idempotent: false }
+  assert.equal(shouldRetryForTask(profileNonIdem, true), false)
+  assert.equal(shouldRetryForTask(profileNonIdem, false), false)
+  const profileIdem = { idempotent: true }
+  assert.equal(shouldRetryForTask(profileIdem, true), true)
+  assert.equal(shouldRetryForTask(profileIdem, false), false)
+  assert.equal(shouldRetryForTask(undefined, true), true)
+  assert.equal(shouldRetryForTask({}, false), false)
 })
