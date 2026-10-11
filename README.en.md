@@ -15,6 +15,8 @@
 
 > Unified model routing plugin: one logical **ModelID** backed by multiple providers' equivalent models, organized into **plans** (each with three tiers `tier1/2/3`) — first-token failover with cooldown, health-aware ranking, per-candidate reasoning effort; manual per-session tier picking in the chat window, and a settings panel that **auto-saves every change** to routes and model capabilities.
 >
+> With no plan configured the plugin leaves the chat-window model seat to the host's native model selector instead of shadowing it; the "no plan configured" hint then lives in the settings panel only.
+>
 > 📦 Published on npm: [`@welsione/dsh-model-router`](https://www.npmjs.com/package/@welsione/dsh-model-router)
 
 中文说明见 [README.md](README.md)。

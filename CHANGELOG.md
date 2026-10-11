@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **改动 - 无套餐时不再遮蔽原生模型选择器**：此前插件无条件占用 `conversation.input.model`（`priority: -1` 压过宿主的 `0`），未配置任何套餐时对话窗口只剩一个空的「套餐」选择器，原生模型选择器被挡掉。现改为**注册级热切换**：插件轮询 `/api/model-router/state` 的套餐计数（首轮立即探明，之后 5s 一次，带在途序号防乱序），计数为 0 时**整条注销**本插件的 slot entry、把座位交还宿主原生 `ModelSelect`；计数 > 0 时按需重新注册遮蔽。之所以必须注销而非"渲染 null 让位"，是因为 single 槽的遮蔽在**投影期**就已按 `priority` 定胜负，取胜方渲染 `null` 不会顺延给下一个 entry，而 `priority` 注册后不可改——`dispose + 重新 register` 是唯一干净的让位手段。代价：增删最后一个套餐时该座位会在「套餐」选择器与原生选择器之间跳变（可接受）。探测未返回前（`count === null`）维持遮蔽，保证有套餐的用户行为不变；探测失败保留旧值待下轮重试。设置页面板内空路由列表不再显示「请到设置→模型路由添加」指引（用户已在设置页，该指引是废话），只保留简洁的「暂无套餐」文本；`routes.emptyTip` 改为指向面板内操作（「按模型名分组」按钮 / 手动添加）。
 - **新功能 - 一键按模型名分组添加候选链**：设置页路由卡片标题旁新增「按模型名分组」折叠按钮，展开后显示供应商目录按模型名分组列表（多供应商模型优先排列）。分组键取模型名 `/` 后的部分（`anthropic/claude-sonnet-4.5` → `claude-sonnet-4.5`，无 `/` 用整名），因此带前缀的目录 id 也能跨供应商归到一起；候选仍写入目录里的完整 model id。点击任一模型名即可一键创建路由——将该模型的所有供应商作为 tier2 候选链（自动故障转移）；也可点「全部添加多供应商模型」批量创建。已添加的路由显示「已添加」徽章并禁用重复添加。
 - **新功能 - 不支持思考级别时自动剥离并重试（auto-strip reasoning effort）**：候选配了 `reasoningEffort` 但模型/供应商实际不支持时（宿主预检拒绝 `UNSUPPORTED_REASONING_EFFORT`，或供应商 API 返回 4xx + reasoning/effort/thinking 关键词），路由层自动**在插件内**剥离 `reasoningEffort` 并重试同一候选——**不触发宿主层 `dsh-llm-retry`**（不 yield finish+error，宿主看不到失败，不会整链重试）。同时自动更新配置：持久化移除该候选的 `reasoningEffort` 字段（best-effort 非阻塞写回 `settings.update`），内存 `effortStrippedKeys` 集合保证当前进程后续请求不再发送该参数。配置变更时清空集合，让用户重新配置的档位有机会被重新尝试。核心纯函数 `isReasoningEffortUnsupported` 带单测覆盖（6 个用例：宿主码 / 供应商 4xx+关键词 / does-not-support+reason|think / 不匹配错误 / null 入参）。
 
