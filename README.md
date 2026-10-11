@@ -62,7 +62,7 @@ dsh plugin --profile web remove @welsione/dsh-model-router  # 卸载
 
 > npm 拉不动？可改走 GitHub 源：`dsh plugin --profile web add github:welsione/dsh-model-router`。
 
-装好后设置页出现「模型路由」卡片；对话窗口模型选择器变为「套餐」选择器（三档切换）。详见 [docs/usage.md](docs/usage.md)。
+装好后设置页出现「模型路由」卡片。**已配置套餐**时，对话窗口模型选择器变为「套餐」选择器（三档切换）；**未配置任何套餐**时不遮蔽原生模型选择器，座位交还宿主，空套餐提示只在设置页面板内显示。详见 [docs/usage.md](docs/usage.md)。
 
 ## Quick start / 快速开始
 
