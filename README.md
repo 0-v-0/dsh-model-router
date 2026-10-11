@@ -50,7 +50,7 @@ dsh plugin --profile web add @welsione/dsh-model-router
 | 会话安全 | 会话事件可恢复、跨 provider 自动清洗 `replayState` |
 ## Compatibility / 兼容性
 
-- DSH `0.1.0-rc.x` – `0.1.7-alpha.1`（`0.1.5-rc.2` 与 `0.1.7-alpha.1` 实测：三代 settings 接入自动兼容，0.1.7 走 `Config` 命名导出 + volatile 表单机制）· Node.js ≥ 22（React 18/19）· 最后验证 2026-09-23。多版本矩阵验证：`npm run verify:matrix`（见 [docs/verify-matrix-0.0.11.md](docs/verify-matrix-0.0.11.md)）。
+- DSH `0.1.0-rc.x` – `0.2.x`（`0.1.5-rc.2` 与 `0.2.0-rc.2` 实测：三代 settings 接入自动兼容，0.2.0 起配置走 volatile 契约）· Node.js ≥ 22（React 18/19）· 最后验证 2026-10-11。多版本矩阵验证：`npm run verify:matrix`（见 [docs/verify-matrix-0.0.11.md](docs/verify-matrix-0.0.11.md)）。
 
 ## Install / Uninstall · 安装 / 卸载
 

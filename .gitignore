@@ -8,3 +8,7 @@ coverage/
 # 开发备份文件
 *.bak
 *.bak-*
+
+# 调试产物（独立 dsh 实例 + playwright 截图）
+scripts/debug-*.txt
+scripts/shot-*.png
