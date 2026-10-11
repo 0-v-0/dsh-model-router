@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **新功能 - 一键按模型名分组添加候选链**：设置页路由卡片标题旁新增「按模型名分组」折叠按钮，展开后显示供应商目录按模型名分组列表（多供应商模型优先排列）。分组键取模型名 `/` 后的部分（`anthropic/claude-sonnet-4.5` → `claude-sonnet-4.5`，无 `/` 用整名），因此带前缀的目录 id 也能跨供应商归到一起；候选仍写入目录里的完整 model id。点击任一模型名即可一键创建路由——将该模型的所有供应商作为 tier2 候选链（自动故障转移）；也可点「全部添加多供应商模型」批量创建。已添加的路由显示「已添加」徽章并禁用重复添加。
+
 ## 0.0.12 (2026-09-23)
 
 - **兼容 - DSH 0.1.7-alpha.1（settings 表单机制 / SettingsForms）**：0.1.7 重构了 settings 接入——`installSection`/`installSettingsSection` 全部移除，宿主按插件**命名导出的 `Config` schema** 自动派生配置段（ns = entry id），`apply(ctx, config)` 第二参变为响应式 store（volatile 字段是 `{get}` ref）。适配三点：
