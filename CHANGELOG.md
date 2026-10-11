@@ -5,6 +5,25 @@
 - **新功能 - 一键按模型名分组添加候选链**：设置页路由卡片标题旁新增「按模型名分组」折叠按钮，展开后显示供应商目录按模型名分组列表（多供应商模型优先排列）。分组键取模型名 `/` 后的部分（`anthropic/claude-sonnet-4.5` → `claude-sonnet-4.5`，无 `/` 用整名），因此带前缀的目录 id 也能跨供应商归到一起；候选仍写入目录里的完整 model id。点击任一模型名即可一键创建路由——将该模型的所有供应商作为 tier2 候选链（自动故障转移）；也可点「全部添加多供应商模型」批量创建。已添加的路由显示「已添加」徽章并禁用重复添加。
 - **新功能 - 不支持思考级别时自动剥离并重试（auto-strip reasoning effort）**：候选配了 `reasoningEffort` 但模型/供应商实际不支持时（宿主预检拒绝 `UNSUPPORTED_REASONING_EFFORT`，或供应商 API 返回 4xx + reasoning/effort/thinking 关键词），路由层自动**在插件内**剥离 `reasoningEffort` 并重试同一候选——**不触发宿主层 `dsh-llm-retry`**（不 yield finish+error，宿主看不到失败，不会整链重试）。同时自动更新配置：持久化移除该候选的 `reasoningEffort` 字段（best-effort 非阻塞写回 `settings.update`），内存 `effortStrippedKeys` 集合保证当前进程后续请求不再发送该参数。配置变更时清空集合，让用户重新配置的档位有机会被重新尝试。核心纯函数 `isReasoningEffortUnsupported` 带单测覆盖（6 个用例：宿主码 / 供应商 4xx+关键词 / does-not-support+reason|think / 不匹配错误 / null 入参）。
 
+## 0.0.11 (2026-10-11)
+
+- **修复 - DSH 0.2.0 下插件安装被拒（`incompatible-version`）**：`peerDependencies` 卡在 `<0.2.0-0`，宿主升到 `0.2.0-rc.2` 后 `dsh` 在安装阶段直接拒绝：
+  `Plugin @welsione/dsh-model-router@0.0.10 is incompatible with dsh 0.2.0-rc.2`。
+  现放宽为双区间 `>=0.1.2-rc.1 <0.2.0-0 || >=0.2.0-rc.1 <0.3.0-0`（`dsh-session` / `dsh-settings` / `dsh-client-ui-primitives` / `dsh-client-ui-settings`）。
+- **迁移 - DSH 0.2.0 配置契约（`installSettingsSection` 已被删除）**：`@deepseek-ai/dsh-settings` 在 0.2.0 移除了自由函数 `installSettingsSection` 与 `SettingsProvider.installSection`（全部 `@deepseek-ai/dsh-*` 包内已无任何引用），旧的 `installSectionCompat(ctx, ns, schema, entry, hooks)` 直接抛
+  `dsh-model-router: 宿主 settings 服务不可用或缺少 installSection`，entry 激活失败。现按现行契约重写：
+  - schema 提到**模块作用域**并整体 `.volatile()`，由 Loader 校验后把整段配置变成 cosmokit `Volatile` 引用；
+  - `apply(ctx, config)` 收到的 `config` 即该引用，`current()` = `config.get()`，热更新只换内部快照、引用对象不变（无需重新订阅）；
+  - `onChange` → `ctx.on('loader/volatile-update', …)` 重建派生内存态（手动档位 / 任务画像 / effort 剥离集合）；
+  - 本插件自带设置页，故在 `ctx.inject(['settings'], …)` 子上下文里 `settings.configure({ auto: false }, ctx.fiber)`，阻止宿主按 schema 再生成一份重复表单；settings 缺失时业务逻辑照常运行。
+  - `validateSection` 改用 `Config(input).get()` 快照 + 深拷贝（`.volatile()` 快照是深度冻结的，而校验路径要改写字段）。
+- **破坏性 - settings 命名空间随入口 id 迁移**：`dsh >= 0.2.0` 的 settings 服务以 **Loader 入口 id** 寻址，旧自由名 `model-router` 不再通用。`NS` 改为 `dsh-model-router`（与 `cordis.patch.yml` 的 id 一致）。**升级后旧配置需迁移**：把原 `model-router` 段改挂到 profile patch 中该 id 的 `config` 下。
+- **修复 - 依赖缺少 `.volatile()`**：`@deepseek-ai/schemastery` 由 `^3.18.1` 提升到 `^3.18.4`（`^3.18.1` 会解析到 3.18.2，该版本没有 `Schema.prototype.volatile`，加载即抛 `z.object(...).volatile is not a function`）。peer 依赖同时补进 `devDependencies`，使 `apply` 级测试可离线运行。
+- **修复 - DSH 0.2.0 下对话窗口套餐选择器整个崩溃（React error #130）**：`dsh-client-ui-primitives` 0.2.0 重编图标命名，`IconChevronUp/DownOutline14` 已删除（改为 `IconChevronUp/DownOutlineMedium`，1.3px 描边）。`primitives.IconChevronDownOutline14` 求值为 `undefined`，`React.createElement(undefined, …)` 抛
+  `Minified React error #130`，控制台报 `slot entry crashed in 'conversation.input.model'`，**整个模型套餐选择器从对话窗口消失**（single 槽被宿主原生选择器顶回）。改为按 Medium 取名 + 显式 `size: 14` 保住原视觉尺寸，并保留旧名 fallback。
+- **修复 - 设置面板数值字段排版错位**：面板 CSS 只给 `.dsh-mr-grid label` 列布局，而「会话负载权重」「长文本阈值」是卡片**直接子节点**的裸 label（无 grid 包裹），退化成行内排版——文字与输入框挤在同一行、字号继承为正文，与同卡片的两列字段完全对不齐；`.dsh-mr-task-grid`（任务路由 7 个字段）存在同样隐患。现统一为 `.dsh-mr-grid label, .dsh-mr-field, .dsh-mr-task-grid label` 共用列布局，裸 label 加 `className: 'dsh-mr-field'`。
+- **测试**：`tests/apply.test.mjs` 迁到 0.2.0 契约（`apply(ctx, reference)` + cosmokit 写协议模拟 volatile 热更新，`settings.update/replace/mutate` 按入口 id 寻址）；新增 `scripts/smoke-020.mjs` 覆盖 0.2.0 契约（模块可加载 / `Config` volatile 且通过 Loader 标准校验 / 默认值与候选 6 字段归一 / 非法值仍拒绝 / 事件与 7 条面板路由注册 / 同一引用热更新可见）。core 80 项 + apply 4 项全过；已用独立 dsh 实例（`mrdebug` profile + Playwright/Edge）实机验证设置页浅色与深色渲染、控制台零错误、改值自动保存并跨刷新落盘。
+
 ## 0.0.10 (2026-09-11)
 
 - **修复 - DSH 0.1.5 下对话窗口组件全部消失（套餐选择器 + 路由状态徽章）**：0.1.5 的 `modelDirectories.directoryFor` 内部访问 `sessions.scope/binding` → `remote.session` 服务，而 entry inject 在插件 fiber 上执行、受 cordis 注入声明权限约束——插件 root inject 组未声明 `remote.session`，`directoryFor` 抛 `cannot get property "remote.session" without inject`，entry 被 slots 系统静默摘除（渲染期abdicate）：single 槽 `conversation.input.model` 被原生模型选择器顶回，list 槽 `conversation.input.left` 留下死行。修复：root inject 组补声明 `remote` / `remote.session`（对齐第一方 `dsh-client-ui-model-selection` 的注入面）；另给 PackageSelect 加 directory 为 null 时的空 store 兜底。已在 DSH 0.1.5-rc.1 实测：套餐选择器与路由徽章恢复渲染、44 项单测全过。

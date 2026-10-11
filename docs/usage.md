@@ -10,29 +10,34 @@
 3. **修改自动保存、即时生效**：任何改动去抖 600ms 后自动写入配置，无需点保存按钮；右下角显示保存状态，失败时红色提示。
 4. 或在对话窗口的套餐选择器里选中已配置好的套餐；选中后路由按候选链自动故障转移。
 
-最小配置示例（settings 的 `model-router` 段）：
+最小配置示例（profile 配置的 `dsh-model-router` 行，dsh >= 0.2.0）：
 
 ```yaml
-model-router:
-  enabled: true
-  cooldownMs: 300000        # 基础冷却；按失败类型分级 + 连续失败指数退避，封顶 cooldownMaxMs
-  cooldownMaxMs: 1800000    # 冷却退避封顶（默认 30 分钟）
-  cooldownBackoff: 2        # 连续失败冷却退避倍数
-  maxSwitchesPerStep: 3
-  healthRanking: true      # 健康度择优（稳定成功的候选优先）
-  sessionLoadWeight: 1     # 会话负载权重（least-connections：运行中会话少的候选优先；0=禁用）
-  routes:
-    deepseek-v4-flash:      # 统一逻辑 ModelID
-      tierNames: { tier3: 旗舰 }   # 可选：该套餐的自定义档位显示名
-      tier1:                # 轻量：压缩 / 标题
-        - { provider: opencode-go, model: mimo-v2.5, reasoningEffort: low }
-      tier2:                # 标准：主对话
-        - { provider: volcengine, model: deepseek-v4-flash }
-        - { provider: opencode-go, model: deepseek-v4-flash }
-      tier3:                # 强大：重任务
-        - { provider: opencode-go, model: deepseek-v4-pro, reasoningEffort: high }
-  # 兼容旧字段：simple → tier1, complex → tier2
+- id: dsh-model-router
+  name: "@welsione/dsh-model-router"
+  config:
+    enabled: true
+    cooldownMs: 300000        # 基础冷却；按失败类型分级 + 连续失败指数退避，封顶 cooldownMaxMs
+    cooldownMaxMs: 1800000    # 冷却退避封顶（默认 30 分钟）
+    cooldownBackoff: 2        # 连续失败冷却退避倍数
+    maxSwitchesPerStep: 3
+    healthRanking: true      # 健康度择优（稳定成功的候选优先）
+    sessionLoadWeight: 1     # 会话负载权重（least-connections：运行中会话少的候选优先；0=禁用）
+    routes:
+      deepseek-v4-flash:      # 统一逻辑 ModelID
+        tierNames: { tier3: 旗舰 }   # 可选：该套餐的自定义档位显示名
+        tier1:                # 轻量：压缩 / 标题
+          - { provider: opencode-go, model: mimo-v2.5, reasoningEffort: low }
+        tier2:                # 标准：主对话
+          - { provider: volcengine, model: deepseek-v4-flash }
+          - { provider: opencode-go, model: deepseek-v4-flash }
+        tier3:                # 强大：重任务
+          - { provider: opencode-go, model: deepseek-v4-pro, reasoningEffort: high }
 ```
+
+> 命名空间说明：dsh <= 0.1.x 用 `model-router` 段；dsh >= 0.2.0 的 settings 服务以
+> Loader 入口 id 寻址，故改用 `dsh-model-router`。升级后旧配置需迁移到
+> `<profile>/cordis.patch.yml` 中该 id 的 `config` 下。
 
 ## 配置
 
@@ -94,7 +99,9 @@ model-router:
 
 ## 故障排查
 
-- **设置页没有「模型路由」卡片** → 确认 `dsh` 版本 ≥ 0.1.0-rc.6，且插件已作为 bundle 安装（`dsh --profile web --dump-config | grep model-router` 应有该行）。
+- **设置页没有「模型路由」卡片** → 确认插件已作为 bundle 安装（`dsh --profile web --dump-config | grep model-router` 应有该行），且 `node -e "require('./lib/index.js')"` 无报错。dsh ≥ 0.2.0 需 0.0.11+（0.2.0 删除了 `installSettingsSection`）。
+- **安装被拒 `incompatible-version`** → 宿主 dsh 版本超出 peerDependencies 范围（0.0.11 支持 `>=0.1.2-rc.1 <0.2.0` 与 `>=0.2.0-rc.1 <0.3.0`）。升级插件，或按提示用 `dsh plugin allow-version` 显式豁免该精确版本组合。
+- **启动报 `installSection`** → 加载的是 0.2.0 之前的旧模块缓存：改完 `lib/index.js` 必须重启 dsh（bundle 开关不重载 ESM 模块）。
 - **面板报「候选不存在于当前模型目录」** → 先在该 provider 下确认模型 id 拼写，或重新保存让目录刷新。
 - **面板提示「自动保存失败：…」** → 多为思考级别校验未过（候选不支持该档位），按提示换档位或留空；修复后下一次修改会自动重试保存。
 - **全部候选失败 / 一直切换** → 查 `GET /api/model-router/state` 的 `cooldowns` 与 `history`；多为限流/配额，等冷却或「全部清除」。

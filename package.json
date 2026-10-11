@@ -1,6 +1,6 @@
 {
   "name": "@welsione/dsh-model-router",
-  "version": "0.0.10",
+  "version": "0.0.11",
   "publishConfig": {
     "access": "public"
   },
@@ -24,6 +24,8 @@
   ],
   "scripts": {
     "test": "node --test \"tests/**/*.test.mjs\"",
+    "test:docs": "node scripts/check-doc-yaml.mjs",
+    "test:smoke": "node scripts/smoke-020.mjs",
     "test:reasoning": "node test-model-reasoning.mjs",
     "prepack": "npm test"
   },
@@ -46,18 +48,23 @@
     "url": "https://github.com/welsione/dsh-model-router.git"
   },
   "dependencies": {
-    "@deepseek-ai/schemastery": "^3.18.1"
+    "@deepseek-ai/schemastery": "^3.18.4"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": ">=4.0.1 <5.0.0-0",
-    "@deepseek-ai/dsh-session": ">=0.0.1-rc.1 <0.1.0 || >=0.1.0-rc.1 <0.2.0-0",
-    "@deepseek-ai/dsh-settings": ">=0.0.1-rc.1 <0.1.0 || >=0.1.0-rc.1 <0.2.0-0",
-    "@deepseek-ai/dsh-client-ui-primitives": ">=0.0.1-rc.1 <0.1.0 || >=0.1.0-rc.1 <0.2.0-0",
-    "@deepseek-ai/dsh-client-ui-settings": ">=0.0.1-rc.1 <0.1.0 || >=0.1.0-rc.1 <0.2.0-0",
+    "@deepseek-ai/cordis": ">=4.0.2 <5.0.0-0",
+    "@deepseek-ai/dsh-session": ">=0.1.2-rc.1 <0.2.0-0 || >=0.2.0-rc.1 <0.3.0-0",
+    "@deepseek-ai/dsh-settings": ">=0.1.2-rc.1 <0.2.0-0 || >=0.2.0-rc.1 <0.3.0-0",
+    "@deepseek-ai/dsh-client-ui-primitives": ">=0.1.2-rc.1 <0.2.0-0 || >=0.2.0-rc.1 <0.3.0-0",
+    "@deepseek-ai/dsh-client-ui-settings": ">=0.1.2-rc.1 <0.2.0-0 || >=0.2.0-rc.1 <0.3.0-0",
     "react": "^18.0.0 || ^19.0.0"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "^0.1.0",
+    "@deepseek-ai/cordis": "^4.0.4",
+    "@deepseek-ai/dsh-client-ui-primitives": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-client-ui-settings": "^0.2.0-rc.2",
+    "@deepseek-ai/dsh-session": "^0.2.0-rc.2",
+    "@earendil-works/pi-ai": "^0.85.0",
+    "react": "^19.0.0",
     "yaml": "^2.0.0"
   },
   "dsh": {

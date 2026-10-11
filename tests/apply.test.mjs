@@ -1,92 +1,66 @@
 // apply 级冒烟（feature: task-aware routing）：
 // 用最小 cordis ctx mock 真实执行 apply，验证：
-//   1) 全部模块引用/服务探测不抛错（含 installSectionCompat 双版本路径）
+//   1) 全部模块引用/服务探测不抛错（dsh >= 0.2.0 volatile 配置契约）
 //   2) Config schema 归一：taskRouting 默认值、taskOverrides 默认值、候选 6 字段
 //   3) /api/model-router/task API 注册 + GET/POST 行为（内存 + 持久化）
 //   4) taskRouting.enabled=false 时 llm/stream 任务块短路（旧行为不变）
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { apply } from '../lib/index.js'
+import { apply, Config } from '../lib/index.js'
 
-// 最小 SettingsProvider mock：register 的 scope.get 读共享 store，
-// update/mutate 改 store 并触发 watch（模拟宿主持久化层）。
-function makeCtx() {
-  const sections = new Map()
+// cosmokit volatile 写协议：Loader 用它把新快照提交进本插件持有的引用。
+const VOLATILE_WRITE = Symbol.for('cosmokit.volatile.write')
+
+// dsh >= 0.2.0：apply 收到的是 Config 整体 .volatile() 产生的引用，current()
+// 每次 .get() 取当前快照；settings.update/replace/mutate 以 Loader 入口 id 寻址。
+function makeCtx(initial = {}) {
   const registrations = []
   const handlers = {}
-  const store = {
-    enabled: true,
-    cooldownMs: 300000,
-    cooldownMaxMs: 1800000,
-    cooldownBackoff: 2,
-    retryOnThrottle: true,
-    maxRetriesPerCandidate: 2,
-    retryBackoffMs: 1000,
-    maxSwitchesPerStep: 3,
-    healthRanking: true,
-    healthWindowSize: 8,
-    reasoningEffortsFallback: ['low', 'medium', 'high'],
-    contextAware: true,
-    contextMargin: 0.9,
-    contextReserveTokens: 8192,
-    sessionLoadWeight: 1,
-    contentAwareTier: true,
-    contentAwareTierTextThreshold: 32768,
-    manualTiers: {},
-    taskOverrides: {},
-    routes: {},
+  // 本插件持有的「活配置」引用：apply 的第二个参数。
+  let snapshot = Config(initial).get()
+  const reference = {
+    get: () => snapshot,
+    [VOLATILE_WRITE]: (value) => { snapshot = value },
   }
-  let current = { ...store }
+  // 模拟 Loader 提交 volatile 热更新：换快照 + 通知 owning fiber。
+  const commit = (raw) => {
+    reference[VOLATILE_WRITE](Config(raw).get())
+    for (const fn of handlers['loader/volatile-update'] ?? []) fn([])
+  }
+  const sections = new Map([['dsh-model-router', { get: () => reference.get() }]])
   const provider = {
-    register(ns, schema, opts) {
-      const section = { ns, schema, opts }
-      const watchers = new Set()
-      section.watch = (fn) => { watchers.add(fn); return () => watchers.delete(fn) }
-      section._watchers = watchers
-      section.get = () => current
-      // 宿主初始配置 = schema 默认 entry（含默认值，如 taskRouting.enabled=false）
-      if (opts && opts.base !== undefined && opts.base !== null) current = opts.base
-      sections.set(ns, section)
-      return section
-    },
-    get() { return current },
+    configure() { return () => {} },
+    get() { return reference.get() },
     async update(ns, patch) {
-      const sec = sections.get(ns)
-      current = sec && sec.schema ? sec.schema({ ...current, ...patch }) : { ...current, ...patch }
-      for (const s of sections.values()) s._watchers.forEach((fn) => fn())
+      assert.equal(ns, 'dsh-model-router')
+      commit({ ...reference.get(), ...patch })
+    },
+    async replace(ns, section) {
+      assert.equal(ns, 'dsh-model-router')
+      commit(section)
     },
     async mutate(ns, ops) {
+      assert.equal(ns, 'dsh-model-router')
+      let next = { ...reference.get() }
       for (const op of ops) {
+        const head = op.path[0]
         if (op.op === 'set') {
-          const head = op.path[0]
-          if (op.path.length > 1) {
-            const inner = (current[head] && typeof current[head] === 'object') ? current[head] : {}
-            current = { ...current, [head]: { ...inner, [op.path[1]]: op.value } }
-          } else {
-            current = { ...current, [head]: op.value }
-          }
-        } else if (op.op === 'unset') {
-          const head = op.path[0]
-          if (op.path.length > 1) {
-            const c = { ...current }
-            const inner = { ...(c[head] || {}) }
-            delete inner[op.path[1]]
-            c[head] = inner
-            current = c
-          } else {
-            const c = { ...current }
-            delete c[head]
-            current = c
-          }
+          next = { ...next, [head]: { ...(next[head] || {}), [op.path[1]]: op.value } }
+        } else {
+          const c = { ...next }
+          const inner = { ...(c[head] || {}) }
+          delete inner[op.path[1]]
+          c[head] = inner
+          next = c
         }
       }
-      for (const s of sections.values()) s._watchers.forEach((fn) => fn())
+      commit(next)
     },
     describe() { return [] },
   }
   const ctx = {
     logger: { info() {}, warn() {}, error() {}, debug() {} },
-    fiber: { state: 'started' },
+    fiber: { state: 2 },
     on(ev, fn) { (handlers[ev] = handlers[ev] || []).push(fn); return () => {} },
     inject(svcs, cb) { return cb({ settings: provider, effect(fn) { const cleanup = fn(); return typeof cleanup === 'function' ? cleanup : () => {} } }) },
     effect(fn) { const cleanup = fn(); return typeof cleanup === 'function' ? cleanup : () => {} },
@@ -99,7 +73,15 @@ function makeCtx() {
     },
     webServer: { register(cfg) { registrations.push(cfg) } },
   }
-  return { ctx, sections, registrations, handlers, getCurrent: () => current, setCurrent: (v) => { current = v } }
+  return {
+    ctx,
+    reference,
+    commit,
+    registrations,
+    handlers,
+    getCurrent: () => reference.get(),
+    setCurrent: (v) => commit(v),
+  }
 }
 
 function jsonReq(method, url, body) {
@@ -132,12 +114,12 @@ function jsonRes() {
 }
 
 function nsConfig(ctxMock) {
-  return ctxMock.sections.get('model-router').get()
+  return ctxMock.getCurrent()
 }
 
 test('apply 冒烟：taskRouting/taskOverrides schema 默认值', () => {
   const m = makeCtx()
-  apply(m.ctx)
+  apply(m.ctx, m.reference)
   const cfg = nsConfig(m)
   assert.equal(cfg.taskRouting.enabled, false)
   assert.equal(cfg.taskRouting.autoComplexity, true)
@@ -149,8 +131,8 @@ test('apply 冒烟：taskRouting/taskOverrides schema 默认值', () => {
 
 test('apply 冒烟：候选 6 字段经 Candidate schema 归一（默认值补齐）', async () => {
   const m = makeCtx()
-  apply(m.ctx)
-  await m.ctx.settings.update('model-router', {
+  apply(m.ctx, m.reference)
+  await m.ctx.settings.update('dsh-model-router', {
     routes: {
       economy: {
         tier1: [{ provider: 'volcengine', model: 'deepseek-v4-flash', location: 'internal', price: 5 }],
@@ -158,8 +140,7 @@ test('apply 冒烟：候选 6 字段经 Candidate schema 归一（默认值补�
       },
     },
   })
-  // update 已触发 watch → onChange（mock 模拟宿主持久化层）
-  // for 循环不再需要：update 内已通知 watchers
+  // update 走 volatile 提交：同引用换快照 + 触发 loader/volatile-update。
   const cfg = nsConfig(m)
   const c1 = cfg.routes.economy.tier1[0]
   assert.equal(c1.location, 'internal')
@@ -177,7 +158,7 @@ test('apply 冒烟：候选 6 字段经 Candidate schema 归一（默认值补�
 
 test('apply 冒烟：/api/model-router/task API 注册 + GET/POST', async () => {
   const m = makeCtx()
-  apply(m.ctx)
+  apply(m.ctx, m.reference)
   const taskRoute = m.registrations.find((r) => r.path === '/api/model-router/task')
   assert.ok(taskRoute, 'task route 已注册')
 
@@ -208,13 +189,12 @@ test('apply 冒烟：/api/model-router/task API 注册 + GET/POST', async () => 
 
 test('apply 冒烟：任务路由关闭时 llm/stream 候选链不变（短路）', async () => {
   const m = makeCtx()
-  apply(m.ctx)
+  apply(m.ctx, m.reference)
   const handlers = m.handlers['llm/stream']
   assert.ok(Array.isArray(handlers) && handlers.length > 0)
   const h = handlers[0]
   const route = { tier2: [{ provider: 'a', model: 'm1' }, { provider: 'b', model: 'm2' }] }
   m.setCurrent({ ...m.getCurrent(), taskRouting: { enabled: false }, routes: { economy: route } })
-  for (const s of m.sections.values()) s._watchers.forEach((fn) => fn())
   const seen = []
   const next = async () => { seen.push('next'); return { ok: true } }
   // 该测试只验证「不抛错 + 短路路径可达」：taskRouting.enabled=false 时
