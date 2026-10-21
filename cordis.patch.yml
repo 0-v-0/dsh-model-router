@@ -1,3 +1,3 @@
 - insert:
-    - id: model-router
+    - id: dsh-model-router
       name: "@welsione/dsh-model-router"

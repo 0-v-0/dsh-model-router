@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import { Config, name, inject, apply } from '../lib/index.js'
 
 assert.equal(name, 'dsh-model-router')
-assert.deepEqual(inject, ['llm', 'webServer', 'settings'])
+assert.deepEqual(inject, ['llm', 'webServer', 'settings', 'credentials'])
 
 // Loader 用 Config['~standard'].validate(raw) 校验；必须成功且产出 volatile 引用。
 const result = Config['~standard'].validate({})

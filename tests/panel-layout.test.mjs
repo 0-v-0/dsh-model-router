@@ -79,7 +79,7 @@ test('面板布局：默认折叠态 + 数据加载后的完整渲染', async ()
   globalThis.document = { head: { appendChild() {} }, createElement: () => styleEl }
 
   const vm = await import('node:vm')
-  const sandbox = { window: windowObj, require: requireShim, document: globalThis.document, fetch: () => Promise.resolve({ json: () => Promise.resolve({ ok: true, efforts: [] }) }) }
+  const sandbox = { window: windowObj, require: requireShim, document: globalThis.document, fetch: () => Promise.resolve({ json: () => Promise.resolve({ ok: true, efforts: [] }) }), setInterval: () => 0, clearInterval: () => {} }
   vm.createContext(sandbox)
   vm.runInContext(src, sandbox)
   assert.ok(typeof exportsRef?.apply === 'function', 'factory 产物应含 apply')

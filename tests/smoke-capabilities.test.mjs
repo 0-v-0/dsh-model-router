@@ -221,17 +221,14 @@ console.log('\n[旧宿主路径] 全部冒烟断言通过 ✅')
 // ============================================================
 import { Config } from '../lib/index.js'
 
-// volatile ref：{ get } ——对齐宿主 resolveConfig 后的形态。
-// refStore 的 values 是共享对象：宿主 _commitVolatile 先更新 ref 值再发事件，
-// mock 用 __syncFrom 模拟这一时序（写 settings → 更新 ref → 事件 → 插件同步）。
+// 整体 volatile 引用：{ get } ——对齐宿主 resolveConfig 后的形态（0.1.7/0.2.x
+// 同构：Config 整体 .volatile() → apply 收到整段引用，.get() 取当前快照）。
+// 快照由宿主的 _commitVolatile 换新，mock 用 __syncFrom 模拟这一时序。
 function makeRefStore(raw) {
-  const resolved = Config(raw ?? {}) // 校验 + 默认值（volatile 字段 → ref）
-  const values = {}
-  for (const [k, v] of Object.entries(resolved)) values[k] = typeof v?.get === 'function' ? v.get() : v
-  const store = {}
-  for (const k of Object.keys(values)) store[k] = { get: () => values[k] }
-  store.__syncFrom = (section) => {
-    for (const k of Object.keys(values)) if (k in section) values[k] = JSON.parse(JSON.stringify(section[k]))
+  let snapshot = Config(raw ?? {}).get() // 校验 + 默认值（整段引用 → 快照）
+  const store = {
+    get: () => snapshot,
+    __syncFrom: (section) => { snapshot = Config(section ?? {}).get() },
   }
   return store
 }
@@ -275,13 +272,13 @@ function makeSettingsFormsHost(initial, onSectionChanged) {
     describe: () => [
       // 0.1.7 形状：ns = entry id；user = 覆盖层（可能为空对象）；value = 生效值
       { ns: 'llm-pi-ai', user: llmStore.get(), value: llmStore.get(), base: {} },
-      { ns: 'model-router', user: JSON.parse(JSON.stringify(section)), value: JSON.parse(JSON.stringify(section)), base: {} },
+      { ns: 'dsh-model-router', user: JSON.parse(JSON.stringify(section)), value: JSON.parse(JSON.stringify(section)), base: {} },
     ],
     async mutate(ns, ops) {
       if (ns === 'llm-pi-ai') {
         llmStore.mutate(ops)
         assertServiceable(llmStore.get())
-      } else if (ns === 'model-router') {
+      } else if (ns === 'dsh-model-router') {
         section = ops.reduce(applyOp, section)
       } else throw new Error(`No configurable plugin entry "${ns}"`)
       commit()
@@ -291,7 +288,7 @@ function makeSettingsFormsHost(initial, onSectionChanged) {
       if (ns === 'llm-pi-ai') {
         llmStore.update(patch)
         assertServiceable(llmStore.get())
-      } else if (ns === 'model-router') {
+      } else if (ns === 'dsh-model-router') {
         section = merge(section, patch)
       } else throw new Error(`No configurable plugin entry "${ns}"`)
       commit()
@@ -308,7 +305,7 @@ const host17 = makeSettingsFormsHost(
   { enabled: true, routes: { 'deepseek-v4-flash': { tier2: [{ provider: 'opencode-go', model: 'deepseek-v4-flash' }] } } },
   (section) => config17.__syncFrom(section),
 )
-assert.equal(typeof config17.enabled?.get, 'function', '0.1.7 ref-store 形态自检')
+assert.equal(typeof config17.get, 'function', '整体 volatile 引用形态自检')
 
 const ctx17 = {
   logger: { info() {}, warn() {}, error() {}, debug() {} },
@@ -399,8 +396,8 @@ console.log('\n[0.1.7 路径] 全部冒烟断言通过 ✅')
     async update(_ns, patch) { store.update(patch); assertServiceable(store.get()); return store.get() },
   }
   const handlers15 = {}
-  const config15 = makeRefStore({ enabled: true }) // cordis 解析出的 ref-store
-  assert.equal(typeof config15.enabled?.get, 'function', 'ref-store 形态自检')
+  const config15 = makeRefStore({ enabled: true }) // cordis 解析出的整体 volatile 引用
+  assert.equal(typeof config15.get, 'function', '整体 volatile 引用形态自检')
 
   const ctx15 = {
     logger: { info() {}, warn() {}, error() {}, debug() {} },
@@ -421,7 +418,7 @@ console.log('\n[0.1.7 路径] 全部冒烟断言通过 ✅')
   apply(ctx15, config15) // 第二参是 ref-store（0.1.5-rc.2 cordis 行为）
 
   // 关键断言：走了旧路径——命名空间已注册 + 走的是 installSection
-  assert.deepEqual(registered, ['model-router'], '必须调用 installSection 注册 model-router 命名空间')
+  assert.deepEqual(registered, ['dsh-model-router'], '必须调用 installSection 注册 dsh-model-router 命名空间')
   assert.ok(handlers15['/api/model-router/state'], '面板 API 已注册')
 
   // 写链路可用（save → settings.replace → 注册过的命名空间）
